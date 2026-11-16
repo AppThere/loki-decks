@@ -53,10 +53,10 @@ fun BodyDlgReuseSlidesDialog(onRun: (command: String, params: JsonObject) -> Uni
             TextButton(onClick = onDismiss) { Text("Cancel") }
             TextButton(onClick = {
                 val params = buildJsonObject {
-                put("on", f0)
-                put("keep", f1)
+                put("name", f0)
+                put("keepFormatting", f1)
                 }
-                /* TODO: which command this dialog runs was not found */
+                onRun("slide.reuse", params)
                 onDismiss()
             }) { Text("OK") }
         },
