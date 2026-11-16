@@ -2,6 +2,13 @@ package app.loki.decks
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
+import kotlinx.coroutines.delay
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
@@ -79,6 +86,9 @@ fun SlideOverlay(
     var widthPx by remember { mutableFloatStateOf(0f) }
     var selected by remember { mutableStateOf<List<SlideShape>>(emptyList()) }
     var editing by remember { mutableStateOf(false) }
+    var text by remember { mutableStateOf(TextGeometry.None) }
+    var blink by remember { mutableStateOf(true) }
+    val imeFocus = remember { FocusRequester() }
     val queue = remember { Channel<Op>(Channel.UNLIMITED) }
     val k = if (slideWidth > 0f) widthPx / slideWidth else 0f
     val touchSlop = LocalViewConfiguration.current.touchSlop
@@ -110,7 +120,17 @@ fun SlideOverlay(
         }
         editing = sel.editingText
         selected = if (sel.slide == index) shapes.filter { it.id in sel.ids } else emptyList()
+        // Where the caret and the highlight are, from the engine's own layout.
+        text = if (sel.editingText) withContext(Dispatchers.Default) { parseTextGeometry(runCatching { client.execute("text.caret") }.getOrNull()) } else TextGeometry.None
     }
+
+    // The caret blinks while text is being edited, and stands steady while it moves.
+    LaunchedEffect(editing, text) {
+        blink = true
+        while (editing) { delay(530); blink = !blink }
+    }
+    // A touch screen has no key events for a soft keyboard: a field that is not there takes its text.
+    LaunchedEffect(editing) { if (editing && isTouchPlatform) runCatching { imeFocus.requestFocus() } }
 
     fun send(method: String, params: JsonObject, final: Boolean) { queue.trySend(Op(method, params, final)) }
 
@@ -180,6 +200,11 @@ fun SlideOverlay(
         ) {
             if (!current || k <= 0f) return@Canvas
             val accent = Color(0xFF2F7DF6)
+            for (r in text.rects) {
+                val path = androidx.compose.ui.graphics.Path().apply { moveTo(r[0].x * k, r[0].y * k); for (i in 1..3) lineTo(r[i].x * k, r[i].y * k); close() }
+                drawPath(path, accent.copy(alpha = 0.3f))
+            }
+            text.caret?.let { c -> if (blink) drawLine(Color(0xFF111111), c[0] * k, c[1] * k, strokeWidth = 2f) }
             for (s in selected) {
                 val c = s.corners().map { it * k }
                 val path = androidx.compose.ui.graphics.Path().apply { moveTo(c[0].x, c[0].y); for (i in 1..3) lineTo(c[i].x, c[i].y); close() }
@@ -195,8 +220,42 @@ fun SlideOverlay(
                 }
             }
         }
+        if (editing && isTouchPlatform) {
+            ImeBridge(
+                imeFocus,
+                onType = { t -> send("ui.text", buildJsonObject { put("text", t) }, final = true) },
+                onBackspace = { send("ui.key", buildJsonObject { put("key", "Backspace") }, final = true) },
+            )
+        }
     }
 }
+
+/**
+ * The soft keyboard's way in. A field nobody sees holds two zero-width characters; what the keyboard
+ * adds after them is typed text, what it takes from them is a Backspace, and the field is put back
+ * each time. A composing keyboard (Chinese, Japanese, predictive text) is not followed: each change
+ * is taken as typed.
+ */
+@Composable
+private fun ImeBridge(focus: FocusRequester, onType: (String) -> Unit, onBackspace: () -> Unit) {
+    var value by remember { mutableStateOf(TextFieldValue(IME_ANCHOR, TextRange(IME_ANCHOR.length))) }
+    BasicTextField(
+        value,
+        { next ->
+            val t = next.text
+            if (t.length < IME_ANCHOR.length) repeat(IME_ANCHOR.length - t.length) { onBackspace() }
+            else {
+                val typed = (if (t.startsWith(IME_ANCHOR)) t.substring(IME_ANCHOR.length) else t.replace("\u200B", ""))
+                if (typed.isNotEmpty()) onType(typed)
+            }
+            value = TextFieldValue(IME_ANCHOR, TextRange(IME_ANCHOR.length))
+        },
+        Modifier.size(1.dp).alpha(0f).focusRequester(focus),
+        keyboardOptions = KeyboardOptions(autoCorrectEnabled = false),
+    )
+}
+
+private const val IME_ANCHOR = "\u200B\u200B"
 
 /** Presses in a row: a press within [WINDOW] ms and [REACH] pixels of the last one adds to the run, up to three. */
 internal class ClickRun {
