@@ -69,4 +69,13 @@ class SlideModelTest {
         assertEquals(1, c.press(2500, Offset(12f, 11f)))       // too late
         assertEquals(1, c.press(2600, Offset(300f, 11f)))      // too far
     }
+
+    @Test fun theCaretAndHighlightAreRead() {
+        val g = parseTextGeometry(Json.parseToJsonElement("""{"caret":[[10,20],[10,40]],"rects":[[[1,2],[5,2],[5,9],[1,9]],[[1,2]],"junk"]}"""))
+        assertEquals(listOf(Offset(10f, 20f), Offset(10f, 40f)), g.caret)
+        assertEquals(1, g.rects.size)                        // the short and the junk ones are dropped
+        assertEquals(TextGeometry.None, parseTextGeometry(Json.parseToJsonElement("""{"caret":null,"rects":[]}""")))
+        assertEquals(TextGeometry.None, parseTextGeometry(null))
+        assertEquals(null, parseTextGeometry(Json.parseToJsonElement("""{"caret":[[1,2]]}""")).caret)
+    }
 }

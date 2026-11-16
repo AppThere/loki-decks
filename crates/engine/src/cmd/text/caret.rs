@@ -375,6 +375,98 @@ pub(super) fn get(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"text": t.text(), "paragraphs": t.paragraphs.iter().map(|p| json!({"level": p.level, "text": p.text()})).collect::<Vec<_>>()}))
 }
 
+/// Where the caret and the selection are drawn, in slide points, for a front end that has no text
+/// layout of its own: `caret` is the segment `[[x, top], [x, bottom]]` and `rects` the highlight of a
+/// range, one quadrilateral `[[x, y] × 4]` per line (turned with the shape). Both come from the layout
+/// the shape is drawn with, so they are where the text is. Notes have no frame: `caret` is null.
+pub(super) fn geometry(s: &mut Session, _p: &Value) -> Result<Value> {
+    let st = s.doc()?;
+    let t = st.selection.text.clone().ok_or_else(|| bad("text.caret", "not editing text"))?;
+    let Some((lay, m)) = super::layout::text_frame(st, &t) else {
+        return Ok(json!({"caret": null, "rects": []}));
+    };
+    let pos = |(para, ch): (usize, usize)| deckcraft_text::Pos { para, ch };
+    let at_line_end = if t.line_end == Some(t.caret) { deckcraft_text::Affinity::Upstream } else { deckcraft_text::Affinity::Downstream };
+    let pt = |x: f64, y: f64| {
+        let q = m * deckcraft_geom::Point::new(x, y);
+        json!([q.x, q.y])
+    };
+    let caret = lay.caret_at(pos(t.caret), at_line_end).map(|(x, top, bottom)| json!([pt(x, top), pt(x, bottom)]));
+    let rects: Vec<Value> = if t.is_range() {
+        lay.selection_rects(pos(t.anchor), pos(t.caret))
+            .iter()
+            .map(|r| json!([pt(r.x0, r.y0), pt(r.x1, r.y0), pt(r.x1, r.y1), pt(r.x0, r.y1)]))
+            .collect()
+    } else {
+        Vec::new()
+    };
+    Ok(json!({"caret": caret, "rects": rects}))
+}
+
+#[cfg(test)]
+mod geometry_tests {
+    use serde_json::json;
+
+    use crate::Session;
+
+    fn editing(text: &str) -> Session {
+        let mut s = Session::with_new();
+        s.execute("slide.new", &json!({"layout": "blank"})).unwrap();
+        let id = s.execute("insert.textBox", &json!({"rect": [100, 50, 400, 40]})).unwrap()["id"].as_u64().unwrap();
+        s.execute("text.edit", &json!({"id": id})).unwrap();
+        s.execute("text.insert", &json!({"text": text})).unwrap();
+        s
+    }
+
+    fn num(v: &serde_json::Value) -> f64 {
+        v.as_f64().unwrap()
+    }
+
+    #[test]
+    fn the_caret_stands_after_the_typed_text_inside_the_box() {
+        let mut s = editing("hello");
+        let r = s.execute("text.caret", &json!({})).unwrap();
+        let c = &r["caret"];
+        let (x, top, bottom) = (num(&c[0][0]), num(&c[0][1]), num(&c[1][1]));
+        assert!(x > 107.0 && x < 400.0, "caret x {x} lies in the text box (left inset 7.2 from 100)");
+        assert!(top >= 50.0 && bottom > top && bottom <= 90.0, "caret from {top} to {bottom} lies in the box (50 to 90)");
+        assert_eq!(num(&c[0][0]), num(&c[1][0]), "an upright box has an upright caret");
+        assert!(r["rects"].as_array().unwrap().is_empty(), "no highlight for a caret");
+        // Typing moves it right.
+        s.execute("text.insert", &json!({"text": " world"})).unwrap();
+        let r2 = s.execute("text.caret", &json!({})).unwrap();
+        assert!(num(&r2["caret"][0][0]) > x);
+    }
+
+    #[test]
+    fn a_range_is_highlighted_one_box_per_line() {
+        let mut s = editing("one\ntwo");
+        s.execute("text.selectAll", &json!({})).unwrap();
+        let r = s.execute("text.caret", &json!({})).unwrap();
+        let rects = r["rects"].as_array().unwrap();
+        assert_eq!(rects.len(), 2, "two lines, two boxes: {r}");
+        assert!(num(&rects[0][0][1]) < num(&rects[1][0][1]), "the second line is lower");
+        assert_eq!(rects[0].as_array().unwrap().len(), 4);
+    }
+
+    #[test]
+    fn a_turned_box_has_a_turned_caret() {
+        let mut s = editing("hello");
+        s.execute("shape.sizePosition", &json!({"rot": 90})).unwrap();
+        let r = s.execute("text.caret", &json!({})).unwrap();
+        let c = &r["caret"];
+        assert!((num(&c[0][1]) - num(&c[1][1])).abs() > 0.0 || (num(&c[0][0]) - num(&c[1][0])).abs() > 0.0);
+        assert!((num(&c[0][0]) - num(&c[1][0])).abs() > 1.0, "turned a quarter, the caret lies on its side: {c}");
+    }
+
+    #[test]
+    fn it_needs_text_being_edited() {
+        let mut s = editing("hello");
+        s.execute("text.exit", &json!({})).unwrap();
+        assert!(s.execute("text.caret", &json!({})).is_err());
+    }
+}
+
 #[cfg(test)]
 mod select_paragraph_tests {
     use serde_json::json;

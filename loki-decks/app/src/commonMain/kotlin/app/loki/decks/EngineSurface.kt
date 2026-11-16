@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -94,6 +95,9 @@ fun EngineSurface(native: SurfaceEngine, revision: Int, modifier: Modifier, scal
     var pages by remember { mutableStateOf<List<ImageBitmap>>(emptyList()) }
     var error by remember { mutableStateOf<String?>(null) }
     var slideWidth by remember { mutableStateOf(960f) }
+    var thumbs by remember { mutableStateOf<List<ImageBitmap>>(emptyList()) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     var live by remember { mutableStateOf(0) }
     LaunchedEffect(revision) {
         withContext(Dispatchers.Default) {
@@ -102,6 +106,8 @@ fun EngineSurface(native: SurfaceEngine, revision: Int, modifier: Modifier, scal
             val imgs = if (i.kind == "cells") emptyList() else (0 until minOf(i.pages, PAGE_CAP)).mapNotNull { p ->
                 native.renderPage(p, scale)?.let { rgbaToImageBitmap(it.width, it.height, it.rgba) }
             }
+            // The strip's pictures: small, and a slide's own.
+            thumbs = if (i.kind == "slides") (0 until minOf(i.pages, STRIP_CAP)).mapNotNull { p -> native.renderPage(p, 0.15f)?.let { rgbaToImageBitmap(it.width, it.height, it.rgba) } } else emptyList()
             info = i
             pages = imgs
             error = if (i.kind != "cells" && i.pages > 0 && imgs.isEmpty()) "the engine rendered nothing" else null
@@ -114,6 +120,10 @@ fun EngineSurface(native: SurfaceEngine, revision: Int, modifier: Modifier, scal
         val img = withContext(Dispatchers.Default) { native.renderPage(at, scale)?.let { rgbaToImageBitmap(it.width, it.height, it.rgba) } } ?: return@LaunchedEffect
         if (at in pages.indices) pages = pages.toMutableList().also { it[at] = img }
     }
+    LaunchedEffect(info.current, pages.size) { if (info.current in pages.indices) runCatching { listState.animateScrollToItem(info.current) } }
+    fun go(index: Int) {
+        scope.launch { withContext(Dispatchers.Default) { runCatching { client.execute("slide.go", buildJsonObject { put("index", index) }) } }; onChanged() }
+    }
     Box(modifier.background(MaterialTheme.colorScheme.surfaceVariant)) {
         when {
             info.kind == "cells" -> CellGrid(client, revision, onChanged, Modifier.fillMaxSize())
@@ -122,8 +132,11 @@ fun EngineSurface(native: SurfaceEngine, revision: Int, modifier: Modifier, scal
                 Modifier.align(Alignment.Center), color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             else -> BoxWithConstraints(Modifier.fillMaxSize()) {
-                val pageWidth = (maxWidth - 32.dp).coerceAtMost(1100.dp)
-                LazyColumn(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                val strip = info.kind == "slides" && maxWidth >= 720.dp && thumbs.size > 1
+                val pageWidth = (maxWidth - 32.dp - (if (strip) STRIP_WIDTH else 0.dp)).coerceAtMost(1100.dp)
+                Row(Modifier.fillMaxSize()) {
+                if (strip) SlideStrip(thumbs, info.current, ::go, Modifier.width(STRIP_WIDTH).fillMaxHeight())
+                LazyColumn(Modifier.weight(1f).fillMaxHeight(), state = listState, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     itemsIndexed(pages) { i, img ->
                         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(top = if (i == 0) 16.dp else 0.dp)) {
                             Box(
@@ -137,6 +150,7 @@ fun EngineSurface(native: SurfaceEngine, revision: Int, modifier: Modifier, scal
                         }
                     }
                     if (info.pages > pages.size) item { Text("…and ${info.pages - pages.size} more", Modifier.padding(16.dp)) }
+                }
                 }
             }
         }
@@ -234,4 +248,28 @@ private fun HeaderCell(text: String, width: Int) {
         Modifier.width(width.dp).height(26.dp).background(MaterialTheme.colorScheme.surfaceVariant).border(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
         contentAlignment = Alignment.Center,
     ) { Text(text, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+}
+
+private const val STRIP_CAP = 60
+private val STRIP_WIDTH = 148.dp
+
+/** The slides as small pictures down the side; a tap makes one the slide in hand. */
+@Composable
+private fun SlideStrip(thumbs: List<ImageBitmap>, current: Int, onGo: (Int) -> Unit, modifier: Modifier) {
+    val state = androidx.compose.foundation.lazy.rememberLazyListState()
+    LaunchedEffect(current) { if (current in thumbs.indices) runCatching { state.animateScrollToItem(current) } }
+    LazyColumn(modifier.background(MaterialTheme.colorScheme.surface), state = state, contentPadding = androidx.compose.foundation.layout.PaddingValues(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        itemsIndexed(thumbs) { i, img ->
+            val on = i == current
+            Row(verticalAlignment = Alignment.Top) {
+                Text("${i + 1}", Modifier.width(18.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Image(
+                    img, contentDescription = "Slide ${i + 1}", contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxWidth().aspectRatio(img.width.toFloat() / img.height.coerceAtLeast(1))
+                        .border(if (on) 2.dp else 1.dp, if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant)
+                        .clickable { onGo(i) },
+                )
+            }
+        }
+    }
 }

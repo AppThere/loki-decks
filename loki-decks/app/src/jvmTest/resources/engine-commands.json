@@ -176,6 +176,7 @@
 {"disabled_reason":"no text insertion point","enabled":false,"id":"text.selectParagraph","label":"Select Paragraph","menu":[],"params":"{at?: [p, c]}","shortcut":null},
 {"enabled":true,"id":"text.set","label":"Set Text","menu":[],"params":"{id?, text, cell?: [r, c]} — replaces the whole text, keeping the first run's formatting","shortcut":null},
 {"enabled":true,"id":"text.get","label":"Get Text","menu":[],"params":"{id?} → {text, paragraphs}","shortcut":null},
+{"disabled_reason":"no text insertion point","enabled":false,"id":"text.caret","label":"Text Caret","menu":[],"params":"{} → {caret: [[x, top], [x, bottom]] | null, rects: [[[x, y] × 4]]} where the caret and the selection are drawn, in slide pt, while editing text (turned with the shape; notes have no frame: caret null)","shortcut":null},
 {"enabled":true,"id":"font.add","label":"Add Font","menu":[],"params":"{data: base64 TTF/OTF/TTC} → {faces} added for this session","shortcut":null},
 {"enabled":true,"id":"font.rescan","label":"Rescan Installed Fonts","menu":["Home","Font"],"params":"{} → {faces, families} (fonts installed since start-up)","shortcut":null},
 {"disabled_reason":"select text or a shape","enabled":false,"id":"format.bold","label":"Bold","menu":["Home","Font"],"params":"{on?: bool}","shortcut":"Cmd+B"},

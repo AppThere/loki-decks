@@ -101,3 +101,22 @@ fun parseSlideSelection(doc: JsonElement?): SlideSelection {
 /** The index of the handle of [handles] within [reach] of [p], nearest first; null if none. */
 fun handleAt(handles: List<Offset>, p: Offset, reach: Float): Int? =
     handles.withIndex().filter { (_, h) -> (h - p).getDistance() <= reach }.minByOrNull { (_, h) -> (h - p).getDistance() }?.index
+
+/** Where the caret and the selection's highlight are, in slide points: a segment from `text.caret`, and a quadrilateral per selected line. */
+data class TextGeometry(val caret: List<Offset>?, val rects: List<List<Offset>>) {
+    companion object { val None = TextGeometry(null, emptyList()) }
+}
+
+private fun point(e: JsonElement?): Offset? {
+    val a = e as? JsonArray ?: return null
+    val x = (a.getOrNull(0) as? JsonPrimitive)?.floatOrNull ?: return null
+    val y = (a.getOrNull(1) as? JsonPrimitive)?.floatOrNull ?: return null
+    return if (x.isFinite() && y.isFinite()) Offset(x, y) else null
+}
+
+fun parseTextGeometry(e: JsonElement?): TextGeometry {
+    val o = e as? JsonObject ?: return TextGeometry.None
+    val caret = (o["caret"] as? JsonArray)?.mapNotNull { point(it) }?.takeIf { it.size == 2 }
+    val rects = (o["rects"] as? JsonArray).orEmpty().mapNotNull { r -> (r as? JsonArray)?.mapNotNull { point(it) }?.takeIf { it.size == 4 } }
+    return TextGeometry(caret, rects)
+}

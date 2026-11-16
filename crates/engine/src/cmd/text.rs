@@ -25,7 +25,7 @@ mod layout;
 use autocorrect::autocorrect_options;
 pub use autocorrect::{AUTOCORRECT, AutoList, correct_word};
 pub(crate) use caret::{apply_leading_tabs, delete_dir};
-use caret::{delete, delete_surrounding, get, insert, move_caret, select, select_all, select_para, select_word, set};
+use caret::{delete, delete_surrounding, geometry, get, insert, move_caret, select, select_all, select_para, select_word, set};
 use editing::{edit, exit};
 pub(crate) use editing::{insert_field, insert_text, paste_body};
 pub use formatting::format_range;
@@ -131,6 +131,7 @@ pub fn specs() -> Vec<CommandSpec> {
             set
         ),
         cmd!(query "text.get", "Get Text", [], None, "{id?} → {text, paragraphs}", has_slide, get),
+        cmd!(query "text.caret", "Text Caret", [], None, "{} → {caret: [[x, top], [x, bottom]] | null, rects: [[[x, y] × 4]]} where the caret and the selection are drawn, in slide pt, while editing text (turned with the shape; notes have no frame: caret null)", has_text, geometry),
     ]
 }
 
