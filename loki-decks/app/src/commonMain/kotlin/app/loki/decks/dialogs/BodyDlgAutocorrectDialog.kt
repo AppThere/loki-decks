@@ -61,13 +61,13 @@ fun BodyDlgAutocorrectDialog(onRun: (command: String, params: JsonObject) -> Uni
             TextButton(onClick = onDismiss) { Text("Cancel") }
             TextButton(onClick = {
                 val params = buildJsonObject {
-                put("acTwoInitials", f0)
-                put("acSentenceCaps", f1)
-                put("acDays", f2)
-                put("acCapsLock", f3)
-                put("acFractions", f4)
-                put("acOrdinals", f5)
-                put("acLists", f6)
+                put("twoInitials", f0)
+                put("sentenceCaps", f1)
+                put("days", f2)
+                put("capsLock", f3)
+                put("fractions", f4)
+                put("ordinals", f5)
+                put("lists", f6)
                 put("autocorrect", f7)
                 if (f8.isNotBlank()) put("from", f8)
                 if (f9.isNotBlank()) put("to", f9)
