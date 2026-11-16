@@ -93,9 +93,12 @@ fun EngineSurface(native: SurfaceEngine, revision: Int, modifier: Modifier, scal
     var info by remember { mutableStateOf(SurfaceInfo("", 0, 0)) }
     var pages by remember { mutableStateOf<List<ImageBitmap>>(emptyList()) }
     var error by remember { mutableStateOf<String?>(null) }
+    var slideWidth by remember { mutableStateOf(960f) }
+    var live by remember { mutableStateOf(0) }
     LaunchedEffect(revision) {
         withContext(Dispatchers.Default) {
             val i = parseSurface(runCatching { client.call("loki.surface") }.getOrNull())
+            slideWidth = parseSlideSize(runCatching { client.call("document.inspect") }.getOrNull()).first
             val imgs = if (i.kind == "cells") emptyList() else (0 until minOf(i.pages, PAGE_CAP)).mapNotNull { p ->
                 native.renderPage(p, scale)?.let { rgbaToImageBitmap(it.width, it.height, it.rgba) }
             }
@@ -103,6 +106,13 @@ fun EngineSurface(native: SurfaceEngine, revision: Int, modifier: Modifier, scal
             pages = imgs
             error = if (i.kind != "cells" && i.pages > 0 && imgs.isEmpty()) "the engine rendered nothing" else null
         }
+    }
+    // While a drag is under way only the slide in hand is drawn again, not every page.
+    LaunchedEffect(live) {
+        if (live == 0) return@LaunchedEffect
+        val at = info.current
+        val img = withContext(Dispatchers.Default) { native.renderPage(at, scale)?.let { rgbaToImageBitmap(it.width, it.height, it.rgba) } } ?: return@LaunchedEffect
+        if (at in pages.indices) pages = pages.toMutableList().also { it[at] = img }
     }
     Box(modifier.background(MaterialTheme.colorScheme.surfaceVariant)) {
         when {
@@ -116,11 +126,13 @@ fun EngineSurface(native: SurfaceEngine, revision: Int, modifier: Modifier, scal
                 LazyColumn(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     itemsIndexed(pages) { i, img ->
                         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(top = if (i == 0) 16.dp else 0.dp)) {
-                            Image(
-                                img, contentDescription = "Page ${i + 1}", contentScale = ContentScale.Fit,
-                                modifier = Modifier.width(pageWidth).aspectRatio(img.width.toFloat() / img.height.coerceAtLeast(1))
+                            Box(
+                                Modifier.width(pageWidth).aspectRatio(img.width.toFloat() / img.height.coerceAtLeast(1))
                                     .border(if (i == info.current && pages.size > 1) 2.dp else 1.dp, if (i == info.current && pages.size > 1) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
-                            )
+                            ) {
+                                Image(img, contentDescription = "Page ${i + 1}", contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
+                                if (info.kind == "slides") SlideOverlay(client, i, i == info.current, slideWidth, revision, onLive = { live++ }, onChanged = onChanged, modifier = Modifier.fillMaxSize())
+                            }
                             if (pages.size > 1) Text("${i + 1}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
